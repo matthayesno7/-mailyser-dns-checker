@@ -1,27 +1,3 @@
-Perfect! Now here's your complete step-by-step guide for GitHub + Vercel deployment:
-
-🚀 Step-by-Step: GitHub + Vercel Deployment
-Step 1: Create GitHub Repository (2 minutes)
-Go to GitHub: Visit github.com and sign in
-Create New Repo: Click the "+" button → "New repository"
-Repository Settings:
-Repository name:
-mailyser-dns-checker
-Description:
-Professional email DNS checker tool
-✅ Public (recommended)
-✅ Add a README file
-Click "Create repository"
-Step 2: Upload Your Files (3 minutes)
-I'll give you the exact files to copy/paste. In your new GitHub repo:
-
-Click "uploading an existing file" or "Add file" → "Create new file"
-
-Create these files one by one:
-
-File 1:
-vercel.json
-
 {
   "version": 2,
   "builds": [
@@ -46,5 +22,9 @@ vercel.json
       "src": "/(.*)",
       "dest": "/frontend/$1"
     }
-  ]
+  ],
+  "env": {
+    "MONGO_URL": "@mongo_url",
+    "DB_NAME": "@db_name"
+  }
 }
