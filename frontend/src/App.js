@@ -1,14 +1,5 @@
 import React, { useState } from "react";
 import "./App.css";
-import axios from "axios";
-
-// For production, the API will be at the same domain under /api
-const BACKEND_URL = process.env.NODE_ENV === 'production' 
-  ? '' 
-  : process.env.REACT_APP_BACKEND_URL;
-const API = process.env.NODE_ENV === 'production' 
-  ? '/api' 
-  : `${BACKEND_URL}/api`;
 
 // Fun images for success and error states
 const SuccessImage = () => (
@@ -118,6 +109,17 @@ function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
 
+  // DNS checking using external DNS-over-HTTPS service
+  const checkDNS = async (domain, recordType) => {
+    try {
+      const response = await fetch(`https://dns.google/resolve?name=${domain}&type=${recordType}`);
+      const data = await response.json();
+      return data.Answer || [];
+    } catch (err) {
+      return [];
+    }
+  };
+
   const handleCheck = async (e) => {
     e.preventDefault();
     if (!email) return;
@@ -127,10 +129,126 @@ function App() {
     setResult(null);
 
     try {
-      const response = await axios.post(`${API}/check-dns`, { email });
-      setResult(response.data);
+      const domain = email.split('@')[1].toLowerCase();
+      
+      // Check SPF record
+      const txtRecords = await checkDNS(domain, 'TXT');
+      const spfRecords = txtRecords.filter(record => 
+        record.data.includes('v=spf1')
+      );
+
+      let spf;
+      if (spfRecords.length === 0) {
+        spf = {
+          type: "SPF",
+          status: "missing",
+          record: null,
+          issues: ["No SPF record found"],
+          recommendations: ["Add an SPF record to your DNS", "Example: v=spf1 include:_spf.google.com ~all"]
+        };
+      } else {
+        const spfRecord = spfRecords[0].data.replace(/"/g, '');
+        const issues = [];
+        const recommendations = [];
+        
+        if (!spfRecord.includes('~all') && !spfRecord.includes('-all')) {
+          issues.push("SPF record should end with an 'all' mechanism");
+          recommendations.push("Add ~all (softfail) or -all (hardfail) at the end");
+        }
+        
+        spf = {
+          type: "SPF",
+          status: issues.length === 0 ? "valid" : "warning",
+          record: spfRecord,
+          issues,
+          recommendations
+        };
+      }
+
+      // Check DMARC record
+      const dmarcRecords = await checkDNS(`_dmarc.${domain}`, 'TXT');
+      const dmarcFound = dmarcRecords.filter(record => 
+        record.data.includes('v=DMARC1')
+      );
+
+      let dmarc;
+      if (dmarcFound.length === 0) {
+        dmarc = {
+          type: "DMARC",
+          status: "missing",
+          record: null,
+          issues: ["No DMARC record found"],
+          recommendations: ["Add a DMARC record to your DNS", "Example: v=DMARC1; p=quarantine; rua=mailto:dmarc@yourdomain.com"]
+        };
+      } else {
+        const dmarcRecord = dmarcFound[0].data.replace(/"/g, '');
+        const issues = [];
+        const recommendations = [];
+        
+        if (dmarcRecord.includes('p=none')) {
+          issues.push("DMARC policy is set to 'none' - emails won't be protected");
+          recommendations.push("Consider upgrading to p=quarantine or p=reject");
+        }
+        
+        dmarc = {
+          type: "DMARC",
+          status: issues.length === 0 ? "valid" : "warning",
+          record: dmarcRecord,
+          issues,
+          recommendations
+        };
+      }
+
+      // Check DKIM (simplified - just check if common selectors exist)
+      const dkimSelectors = ['default', 'selector1', 'google'];
+      let dkim = {
+        type: "DKIM",
+        status: "missing",
+        record: null,
+        issues: ["No DKIM records found with common selectors"],
+        recommendations: ["Set up DKIM signing for your email service", "Common selectors checked: default, selector1, google"]
+      };
+
+      for (const selector of dkimSelectors) {
+        const dkimRecords = await checkDNS(`${selector}._domainkey.${domain}`, 'TXT');
+        if (dkimRecords.length > 0) {
+          dkim = {
+            type: "DKIM",
+            status: "valid",
+            record: `Selector: ${selector} (found)`,
+            issues: [],
+            recommendations: []
+          };
+          break;
+        }
+      }
+
+      // Determine overall status
+      const statuses = [spf.status, dmarc.status, dkim.status];
+      const validCount = statuses.filter(s => s === 'valid').length;
+      const missingCount = statuses.filter(s => s === 'missing').length;
+      
+      let overallStatus;
+      if (validCount >= 2) {
+        overallStatus = "pass";
+      } else if (missingCount >= 2) {
+        overallStatus = "fail";
+      } else {
+        overallStatus = "warning";
+      }
+
+      setResult({
+        email,
+        domain,
+        overall_status: overallStatus,
+        spf,
+        dmarc,
+        dkim,
+        timestamp: new Date().toISOString()
+      });
+
     } catch (err) {
-      setError(err.response?.data?.detail || 'An error occurred while checking DNS records');
+      setError('An error occurred while checking DNS records. Please try again.');
     } finally {
       setLoading(false);
     }
