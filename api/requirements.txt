@@ -1,4 +1,0 @@
-fastapi
-dnspython
-pydantic
-email-validator
