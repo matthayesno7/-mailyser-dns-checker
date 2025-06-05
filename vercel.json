@@ -23,8 +23,5 @@
       "dest": "/frontend/$1"
     }
   ],
-  "env": {
-    "MONGO_URL": "@mongo_url",
-    "DB_NAME": "@db_name"
-  }
+
 }
